@@ -13,8 +13,6 @@ async function apiGet(params) {
 }
 
 // ─── POST helper ────────────────────────────────────────────
-// Note: Apps Script requires no-cors workaround — we send as text
-// and let Apps Script parse JSON from postData.contents
 async function apiPost(body) {
   const res = await fetch(API_URL, {
     method: 'POST',
@@ -24,6 +22,16 @@ async function apiPost(body) {
   return res.json();
 }
 
+// ─── Strip time from ISO date strings ───────────────────────
+// Google Sheets may return dates as full ISO datetime strings
+// e.g. "2026-03-02T08:00:00.000Z" → "2026-03-02"
+function toDateOnly(v) {
+  if (!v) return '';
+  const s = String(v);
+  if (s.includes('T')) return s.split('T')[0];
+  return s.trim();
+}
+
 // ─── Load all data at once (called on app startup) ──────────
 export async function loadAllData() {
   const result = await apiGet({ action: 'getAll' });
@@ -31,7 +39,6 @@ export async function loadAllData() {
 
   const d = result.data;
 
-  // Parse boolean strings back from Sheets ("TRUE"/"FALSE" → true/false)
   const parseBool = (v) => v === true || v === 'TRUE' || v === 'true';
   const parseNum = (v) => parseFloat(v) || 0;
 
@@ -62,7 +69,7 @@ export async function loadAllData() {
     ess: parseBool(w.ess), imp: parseBool(w.imp)
   }));
 
-  // Parse preferences — stored as JSON strings in Sheets
+  // Parse preferences
   const subs = {};
   d.preferences.forEach(p => {
     if (!p.resId) return;
@@ -80,14 +87,14 @@ export async function loadAllData() {
     };
   });
 
-  // Parse history — assignments and submissions stored as JSON
+  // Parse history — stored as one row per week with JSON blobs
   const history = d.history.map(h => {
     let assignments = {};
     let submissions = {};
     try { assignments = JSON.parse(h.assignmentsJSON || '{}'); } catch (e) {}
     try { submissions = JSON.parse(h.submissionsJSON || '{}'); } catch (e) {}
     return {
-      weekStart: h.weekStart,
+      weekStart: toDateOnly(h.weekStart),
       biweek: h.biweek,
       assignments,
       submissions,
@@ -95,8 +102,24 @@ export async function loadAllData() {
     };
   });
 
-  // The most recent history entry is the published chart
-  const pub = history.length > 0 ? history[history.length - 1] : null;
+  // Build published chart from the Assignments tab (one row per assignment)
+  // This is the "live" chart, separate from history
+  let pub = null;
+  if (d.assignments && d.assignments.length > 0) {
+    const asgn = {};
+    let weekStart = '';
+    let biweek = '';
+    let publishedAt = '';
+    d.assignments.forEach(a => {
+      if (a.workshiftId && a.residentId) {
+        asgn[a.workshiftId] = a.residentId;
+      }
+      if (!weekStart && a.weekStart) weekStart = toDateOnly(a.weekStart);
+      if (!biweek && a.biweek) biweek = a.biweek;
+      if (!publishedAt && a.publishedAt) publishedAt = a.publishedAt;
+    });
+    pub = { weekStart, biweek, assignments: asgn, publishedAt };
+  }
 
   return {
     residents,

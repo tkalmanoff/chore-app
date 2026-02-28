@@ -11,15 +11,26 @@ const DAYS=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunda
 const D3=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const PL=["Yes","Fine","Prefer not","No"];
 const CATS=[
-  {v:"fixed",l:"Fixed (always assigned)"},{v:"day",l:"Weekly (day-specific)"},
-  {v:"rot",l:"Weekly (flexible)"},{v:"bw",l:"Biweekly"},{v:"nth",l:"Nonessential"}
+  {v:"day",l:"Weekly (day-specific)"},{v:"rot",l:"Weekly (flexible)"},
+  {v:"bw",l:"Biweekly"},{v:"nth",l:"Nonessential"},{v:"fixed",l:"Fixed (always assigned)"}
 ];
 const KEY_WS=["Cook","Cook Help","PM Clean","Upstairs Bathroom","Downstairs Bathroom","Kitchen Bathroom Clean","Berkeley Bowl Shop","Farmers Market"];
 
 const calcH=out=>{const i=7-out.length;return i>=5?4:i>=3?2:i>=1?1:0;};
 const nextMon=()=>{const d=new Date();const diff=(8-d.getDay())%7||7;d.setDate(d.getDate()+diff);return d;};
-const fmtR=s=>{const d=new Date(s+"T12:00:00"),e=new Date(d);e.setDate(d.getDate()+6);const m1=d.toLocaleDateString("en-US",{month:"short"}),m2=e.toLocaleDateString("en-US",{month:"short"});return m1===m2?`${m1} ${d.getDate()}-${e.getDate()}, ${d.getFullYear()}`:`${m1} ${d.getDate()} - ${m2} ${e.getDate()}, ${e.getFullYear()}`;};
-const fmtD=d=>new Date(d).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"});
+const fmtR=s=>{
+  if(!s)return"—";
+  const clean=String(s).includes("T")?s.split("T")[0]:String(s).trim();
+  const d=new Date(clean+"T12:00:00"),e=new Date(d);
+  if(isNaN(d.getTime()))return"—";
+  e.setDate(d.getDate()+6);
+  const m1=d.toLocaleDateString("en-US",{month:"short"}),m2=e.toLocaleDateString("en-US",{month:"short"});
+  return m1===m2?`${m1} ${d.getDate()}-${e.getDate()}, ${d.getFullYear()}`:`${m1} ${d.getDate()} - ${m2} ${e.getDate()}, ${e.getFullYear()}`;
+};
+const fmtD=d=>{
+  if(!d)return"—";
+  try{return new Date(d).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"});}catch(e){return"—";}
+};
 const toISO=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 
 const G={p:"#2d4a2d",pl:"#4a7a4a",bg:"#fafaf7",card:"#fff",imp:"#fffcf0",impB:"#e6c200",mt:"#94928d",
@@ -102,7 +113,6 @@ function ErrorScreen({error,onRetry,onInit}){
 }
 
 export default function App(){
-  // ─── Loading state ────────────────────────────────────────
   const[loading,setLoading]=useState(true);
   const[loadError,setLoadError]=useState(null);
   const[saving,setSaving]=useState(false);
@@ -210,6 +220,51 @@ export default function App(){
     setERes(null);setShowHDrop(false);setNavPrompt(null);
   };
 
+  // ─── Print / Save as PDF ──────────────────────────────────
+  const handlePrint=useCallback(()=>{
+    const printArea=document.getElementById("print-chart");
+    if(!printArea)return;
+    const weekTitle=pub?fmtR(pub.weekStart):"";
+    const clone=document.createElement("div");
+    clone.innerHTML=printArea.innerHTML;
+    clone.querySelectorAll("div").forEach(el=>{
+      const bg=el.style.background||el.style.backgroundColor;
+      if(bg&&(bg.includes("45, 74, 45")||bg.includes("74, 122, 74")||bg.includes("122, 122, 114")||bg.includes("#2d4a2d")||bg.includes("#4a7a4a")||bg.includes("#7a7a72"))){
+        el.style.background="none";el.style.backgroundColor="transparent";
+        el.style.color="#1a1a1a";el.style.fontWeight="800";
+        el.style.borderBottom="2px solid #999";el.style.paddingBottom="2px";el.style.borderRadius="0";
+      }
+    });
+    const content=clone.innerHTML;
+    const w=window.open("","_blank","width=900,height=700");
+    w.document.write(`<!DOCTYPE html><html><head><title>Workshifts for Week of ${weekTitle}</title>
+<style>
+@page{size:letter;margin:0.3in 0.4in;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',sans-serif;
+padding:0;margin:0;color:#333;font-size:9px;line-height:1.15;}
+.no-print{background:#f0efeb;border:1px solid #d4d3cf;border-radius:8px;padding:12px 16px;margin:16px;text-align:center;}
+.no-print p{font-size:12px;color:#666;margin-bottom:8px;}
+.print-title{text-align:center;font-size:14px;font-weight:700;color:#1a1a1a;padding:8px 16px 4px;border-bottom:2px solid #333;margin:0 16px 6px;}
+.print-content{padding:0 16px;font-size:10px;}
+.print-content div[style*="grid"]{display:grid!important;grid-template-columns:1fr 1fr!important;gap:10px!important;}
+@media print{
+.no-print{display:none!important;}
+body{font-size:10px;}
+.print-title{margin:0 0 8px;padding:0 0 6px;}
+.print-content{padding:0;}
+}
+</style></head><body>
+<div class="no-print">
+<p>Tip: In the print dialog, uncheck "Headers and footers" for a cleaner look.</p>
+<button onclick="window.print()" style="padding:8px 20px;background:#2d4a2d;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Print</button>
+</div>
+<div class="print-title">Workshifts for Week of ${weekTitle}</div>
+<div class="print-content">${content}</div>
+</body></html>`);
+    w.document.close();
+  },[pub]);
+
   // ─── Algorithm ────────────────────────────────────────────
   const genSched=useCallback(()=>{
     const a={},rh={},sat={},ckCnt={},pmCnt={},amCnt={},pmDays={};
@@ -265,7 +320,6 @@ export default function App(){
     background:act?G.p:"#fff",color:act?"#fff":"#666",fontWeight:act?600:400,fontSize:12});
   const dayOrd=nm=>({"AM Clean":0,"Cook":1,"Cook Help":2,"PM Clean":3}[nm]??4);
 
-  // ─── Saving indicator ─────────────────────────────────────
   const SaveIndicator=()=>saving?(
     <div style={{position:"fixed",top:10,right:10,background:G.p,color:"#fff",padding:"6px 16px",borderRadius:8,fontSize:12,fontWeight:600,zIndex:1000,boxShadow:"0 2px 10px rgba(0,0,0,0.2)"}}>
       Saving...
@@ -277,7 +331,12 @@ export default function App(){
     const r=rById(resId),ex=subs[resId];
     const defaultPrefs=buildDefaultPrefs();
     const[dOut,setDOut]=useState(ex?.daysOut||[]);
-    const[pr,setPr]=useState(ex?.prefs||defaultPrefs);
+    const[pr,setPr]=useState(()=>{
+      if(ex?.prefs&&Object.keys(ex.prefs).length>0){
+        return{...defaultPrefs,...ex.prefs};
+      }
+      return defaultPrefs;
+    });
     const[cpOk,setCpOk]=useState(ex?.cookPmOk||false);
     const[cmt,setCmt]=useState(ex?.comment||"");
     const[col,setCol]=useState(()=>{const c={};DAYS.forEach(d=>c[d]=true);return c;});
@@ -335,9 +394,9 @@ export default function App(){
           <h2 style={{margin:0,color:G.p,fontSize:22,fontWeight:700}}>{r?.n}</h2>
         </div>
         {myFx.length>0&&(
-          <div style={{background:G.p,color:"#fff",borderRadius:8,padding:"10px 14px",marginBottom:20}}>
-            <div style={{fontWeight:600,fontSize:13,marginBottom:2}}>📌 Always Yours</div>
-            {myFx.map(f=><div key={f.id} style={{fontSize:12,opacity:0.85}}>• {f.nm} <span style={{opacity:0.6,fontStyle:"italic"}}>{f.h}h</span></div>)}
+          <div style={{background:"#fff",borderLeft:`4px solid ${G.pl}`,borderRadius:4,padding:"10px 14px",marginBottom:20,border:"1px solid #eeeee8",borderLeftWidth:4,borderLeftColor:G.pl}}>
+            <div style={{fontWeight:600,fontSize:13,marginBottom:2,color:G.p}}>📌 Always Yours</div>
+            {myFx.map(f=><div key={f.id} style={{fontSize:12,color:"#555"}}>• {f.nm} <span style={{color:G.mt,fontStyle:"italic"}}>{f.h}h</span></div>)}
           </div>
         )}
         {showWarn&&(
@@ -396,7 +455,7 @@ export default function App(){
   const DayChart=({asgn,wsd,bwv,edit,onEdit,showLC,showStats})=>{
     const lc=useMemo(()=>{
       if(!showLC)return{};const r={};[...bwW,...nth,...rot].forEach(w=>{
-        for(let i=hist.length-1;i>=0;i--){if(hist[i].assignments[w.id]){r[w.id]=Math.round((Date.now()-new Date(hist[i].weekStart).getTime())/(7*86400000));break;}}
+        for(let i=hist.length-1;i>=0;i--){if(hist[i].assignments[w.id]){r[w.id]=Math.round((Date.now()-new Date(hist[i].weekStart+"T12:00:00").getTime())/(7*86400000));break;}}
       });return r;
     },[showLC,hist,bwW,nth,rot]);
     const abw=bwW.filter(w=>w.wk===(bwv||bw));
@@ -525,7 +584,7 @@ export default function App(){
     );
   };
 
-  const ChartHeader=({wsd,asgn,showToggle,copyBtn})=>{
+  const ChartHeader=({wsd,asgn,showToggle,copyBtn,printBtn})=>{
     const dn=["Sunday","Monday","Tuesday","Wednesday","Thursday"].filter(d=>asgn[`ck-${d}`]).length;
     const oc=res.filter(r=>{const s=subs[r.id];return s?.daysOut?.length>0;}).length;
     return(<div style={{marginBottom:16}}>
@@ -538,7 +597,9 @@ export default function App(){
         <div style={{display:"flex",gap:8,marginTop:10,alignItems:"center"}}>
           <button onClick={()=>setCView("ws")} style={tb(cView==="ws")}>By Workshift</button>
           <button onClick={()=>setCView("person")} style={tb(cView==="person")}>By Person</button>
-          {copyBtn&&<><div style={{flex:1}}/>{copyBtn}</>}
+          <div style={{flex:1}}/>
+          {printBtn}
+          {copyBtn}
         </div>
       )}
     </div>);
@@ -560,13 +621,18 @@ export default function App(){
     const CopyBtn=<button onClick={copyLink} style={{padding:"5px 12px",border:"1px solid #d4d3cf",borderRadius:6,cursor:"pointer",fontSize:12,color:copied?"#22c55e":"#666",background:"#fff",fontWeight:500}}>
       {copied?"✓ Copied!":"📋 Copy link"}
     </button>;
+    const PrintBtn=<button onClick={handlePrint} style={{padding:"5px 12px",border:"1px solid #d4d3cf",borderRadius:6,cursor:"pointer",fontSize:12,color:"#666",background:"#fff",fontWeight:500}}>
+      🖨 Print / PDF
+    </button>;
     return(
       <div>
-        <ChartHeader wsd={pub.weekStart} asgn={pub.assignments} showToggle={true} copyBtn={CopyBtn}/>
-        {cView==="ws"?
-          <DayChart asgn={pub.assignments} wsd={pub.weekStart} bwv={pub.biweek} edit={false} showLC={false} showStats={false}/>:
-          <PersonChart asgn={pub.assignments} wsd={pub.weekStart}/>
-        }
+        <ChartHeader wsd={pub.weekStart} asgn={pub.assignments} showToggle={true} copyBtn={CopyBtn} printBtn={PrintBtn}/>
+        <div id="print-chart">
+          {cView==="ws"?
+            <DayChart asgn={pub.assignments} wsd={pub.weekStart} bwv={pub.biweek} edit={false} showLC={false} showStats={false}/>:
+            <PersonChart asgn={pub.assignments} wsd={pub.weekStart}/>
+          }
+        </div>
       </div>
     );
   };
@@ -727,7 +793,6 @@ export default function App(){
       const WSEditModal=()=>{
         const[nm,setNm]=useState(editWS?.nm||"");
         const[h,setH]=useState(editWS?.h||0.5);
-        const[ess,setEss]=useState(editWS?.ess!==false);
         const[cat,setCat]=useState(editWS?.cat||"rot");
         const[day,setDay]=useState(editWS?.day||"Monday");
         const[wk,setWk]=useState(editWS?.wk||"A");
@@ -740,10 +805,11 @@ export default function App(){
 
         const save=async()=>{
           setIsSaving(true);
-          const base={nm,h:parseFloat(h),ess:cat!=="nth",imp:impV};
+          // Essential is automatic: nth = not essential, everything else = essential
+          const isEss=cat!=="nth";
+          const base={nm,h:parseFloat(h),ess:isEss,imp:impV};
           const id=origId||(isNew?`${cat}-${Date.now()}`:origId);
 
-          // Build new lists
           let newFx=[...fxW],newDws=[...dws],newRot=[...rot],newBw=[...bwW],newNth=[...nth];
           if(!isNew){
             newFx=newFx.filter(x=>x.id!==origId);
@@ -797,11 +863,6 @@ export default function App(){
               {cat==="fixed"&&(<><label style={lbl}>Assigned to</label><select value={fixTo} onChange={e=>setFixTo(e.target.value)} style={ipt}><option value="">Select</option>{res.map(r=><option key={r.id} value={r.id}>{r.n}</option>)}</select></>)}
               {cat==="day"&&(<><label style={lbl}>Day</label><select value={day} onChange={e=>setDay(e.target.value)} style={ipt}>{DAYS.map(d=><option key={d} value={d}>{d}</option>)}</select></>)}
               {cat==="bw"&&(<><label style={lbl}>Week</label><div style={{display:"flex",gap:6,marginBottom:10}}><button type="button" onClick={()=>setWk("A")} style={tb(wk==="A")}>Week A</button><button type="button" onClick={()=>setWk("B")} style={tb(wk==="B")}>Week B</button></div></>)}
-              {cat!=="fixed"&&cat!=="nth"&&(
-                <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,marginBottom:10,cursor:"pointer"}}>
-                  <input type="checkbox" checked={ess} onChange={e=>setEss(e.target.checked)} style={{accentColor:G.p}}/>Essential
-                </label>
-              )}
               <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,marginBottom:16,cursor:"pointer"}}>
                 <input type="checkbox" checked={impV} onChange={e=>setImpV(e.target.checked)} style={{accentColor:G.p}}/>Important (ie bathroom)
               </label>
@@ -993,7 +1054,6 @@ export default function App(){
     );
   };
 
-  // ─── Loading / Error states ───────────────────────────────
   if(loading)return <LoadingScreen msg="Loading from Google Sheets..."/>;
   if(loadError)return <ErrorScreen error={loadError} onRetry={doLoad} onInit={doInit}/>;
 
