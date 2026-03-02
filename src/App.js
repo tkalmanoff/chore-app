@@ -1,8 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import {
   loadAllData, saveResidents as apiSaveRes, saveFixedWorkshifts as apiSaveFx,
-  saveDayWorkshifts as apiSaveDay, saveRotWorkshifts as apiSaveRot,
-  saveBiweeklyWorkshifts as apiSaveBw, saveNthWorkshifts as apiSaveNth,
+  saveDayWorkshifts as apiSaveDay, saveFlexWorkshifts as apiSaveFlex,
   savePreference as apiSavePref, savePublish as apiSavePublish,
   initializeDefaults as apiInitDefaults
 } from "./api";
@@ -11,8 +10,7 @@ const DAYS=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunda
 const D3=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const PL=["Yes","Fine","Prefer not","No"];
 const CATS=[
-  {v:"day",l:"Weekly (day-specific)"},{v:"rot",l:"Weekly (flexible)"},
-  {v:"bw",l:"Biweekly"},{v:"nth",l:"Nonessential"},{v:"fixed",l:"Fixed (always assigned)"}
+  {v:"flex",l:"Flexible"},{v:"day",l:"Day-specific"},{v:"fixed",l:"Fixed (always assigned)"}
 ];
 const KEY_WS=["Cook","Cook Help","PM Clean","Upstairs Bathroom","Downstairs Bathroom","Kitchen Bathroom Clean","Berkeley Bowl Shop","Farmers Market"];
 
@@ -40,12 +38,12 @@ const TABS=["📋 This Week's Workshifts","✏️ My Preferences","⚙️ Admin"
 const Hrs=({v})=><span style={{color:G.mt,fontStyle:"italic",fontSize:12,marginLeft:4}}>{v}h</span>;
 const ImpBadge=()=><span style={{background:G.impB,color:"#5a4800",fontSize:9,padding:"1px 5px",borderRadius:3,marginLeft:6,fontWeight:700}}>⚠ Important</span>;
 
-const hasLimitedAvail=(sub,allDayWS,allFlexWS,fxW)=>{
+const hasLimitedAvail=(sub,allDayWS,flexWS,fxW)=>{
   if(!sub)return false;
   if(fxW.some(f=>f.to===sub.resId))return false;
   const prefs=sub.prefs||{};
   const pos=["Yes","Fine","Prefer not"];
-  const keyIds=[...allDayWS,...allFlexWS].filter(w=>KEY_WS.includes(w.nm)).map(w=>w.id);
+  const keyIds=[...allDayWS,...flexWS].filter(w=>KEY_WS.includes(w.nm)).map(w=>w.id);
   return!keyIds.some(id=>pos.includes(prefs[id]));
 };
 
@@ -80,7 +78,6 @@ function ConfirmUnlockModal({open,onClose,onConfirm}){
   );
 }
 
-// ─── Loading Screen ─────────────────────────────────────────
 function LoadingScreen({msg}){
   return(
     <div style={{fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',sans-serif",background:G.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:G.p}}>
@@ -94,7 +91,6 @@ function LoadingScreen({msg}){
   );
 }
 
-// ─── Error Screen ───────────────────────────────────────────
 function ErrorScreen({error,onRetry,onInit}){
   return(
     <div style={{fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',sans-serif",background:G.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:"#333",padding:20}}>
@@ -120,9 +116,7 @@ export default function App(){
   const[res,setRes]=useState([]);
   const[fxW,setFxW]=useState([]);
   const[dws,setDws]=useState([]);
-  const[rot,setRot]=useState([]);
-  const[bwW,setBwW]=useState([]);
-  const[nth,setNth]=useState([]);
+  const[flex,setFlex]=useState([]);
   const[tab,setTab]=useState(0);
   const[aTab,setATab]=useState(0);
   const[subs,setSubs]=useState({});
@@ -130,7 +124,6 @@ export default function App(){
   const[pub,setPub]=useState(null);
   const[draft,setDraft]=useState(null);
   const[ws,setWs]=useState(()=>toISO(nextMon()));
-  const[bw,setBw]=useState("A");
   const[eRes,setERes]=useState(null);
   const[cView,setCView]=useState("ws");
   const[stUnlock,setStUnlock]=useState(false);
@@ -144,7 +137,6 @@ export default function App(){
   const[copied,setCopied]=useState(false);
   const[navPrompt,setNavPrompt]=useState(null);
 
-  // ─── Load data from Google Sheets on mount ────────────────
   const doLoad=useCallback(async()=>{
     setLoading(true);setLoadError(null);
     try{
@@ -152,9 +144,7 @@ export default function App(){
       setRes(d.residents);
       setFxW(d.fixedWorkshifts);
       setDws(d.dayWorkshifts);
-      setRot(d.rotWorkshifts);
-      setBwW(d.biweeklyWorkshifts);
-      setNth(d.nthWorkshifts);
+      setFlex(d.flexWorkshifts);
       setSubs(d.subs);
       setHist(d.history);
       setPub(d.pub);
@@ -179,7 +169,6 @@ export default function App(){
 
   useEffect(()=>{doLoad();},[doLoad]);
 
-  const allFlex=useMemo(()=>[...rot,...bwW,...nth],[rot,bwW,nth]);
   const rById=useCallback(id=>res.find(r=>r.id===id),[res]);
   const rName=useCallback(id=>rById(id)?.n||"?",[rById]);
   const fxHrs=useCallback(rid=>fxW.filter(f=>f.to===rid).reduce((s,f)=>s+f.h,0),[fxW]);
@@ -203,10 +192,10 @@ export default function App(){
 
   const buildDefaultPrefs=useCallback(()=>{
     const pr={};
-    uDayWS.forEach(w=>{pr[w.id]="Yes";});
-    allFlex.filter(w=>!fxW.find(f=>f.id===w.id)).forEach(w=>{pr[w.id]="Yes";});
+    uDayWS.forEach(w=>{pr[w.id]="Fine";});
+    flex.filter(w=>!fxW.find(f=>f.id===w.id)).forEach(w=>{pr[w.id]="Fine";});
     return pr;
-  },[uDayWS,allFlex,fxW]);
+  },[uDayWS,flex,fxW]);
 
   const navTo=(t,at)=>{
     if(stUnlock&&(t!==2||at!==2)){setNavPrompt({t,at});return;}
@@ -222,36 +211,52 @@ export default function App(){
 
   // ─── Print / Save as PDF ──────────────────────────────────
   const handlePrint=useCallback(()=>{
-    const printArea=document.getElementById("print-chart");
-    if(!printArea)return;
+    const wsArea=document.getElementById("print-chart-ws");
+    const personArea=document.getElementById("print-chart-person");
+    if(!wsArea||!personArea)return;
     const weekTitle=pub?fmtR(pub.weekStart):"";
-    const clone=document.createElement("div");
-    clone.innerHTML=printArea.innerHTML;
-    clone.querySelectorAll("div").forEach(el=>{
-      const bg=el.style.background||el.style.backgroundColor;
-      if(bg&&(bg.includes("45, 74, 45")||bg.includes("74, 122, 74")||bg.includes("122, 122, 114")||bg.includes("#2d4a2d")||bg.includes("#4a7a4a")||bg.includes("#7a7a72"))){
-        el.style.background="none";el.style.backgroundColor="transparent";
-        el.style.color="#1a1a1a";el.style.fontWeight="800";
-        el.style.borderBottom="2px solid #999";el.style.paddingBottom="2px";el.style.borderRadius="0";
-      }
-    });
-    const content=clone.innerHTML;
+    const processClone=(el)=>{
+      const clone=document.createElement("div");
+      clone.innerHTML=el.innerHTML;
+      clone.querySelectorAll("div").forEach(d=>{
+        const bg=d.style.background||d.style.backgroundColor;
+        if(bg&&(bg.includes("45, 74, 45")||bg.includes("74, 122, 74")||bg.includes("122, 122, 114")||bg.includes("#2d4a2d")||bg.includes("#4a7a4a")||bg.includes("#7a7a72"))){
+          d.style.background="none";d.style.backgroundColor="transparent";
+          d.style.color="#1a1a1a";d.style.fontWeight="800";
+          d.style.borderBottom="2px solid #999";d.style.paddingBottom="2px";d.style.borderRadius="0";
+        }
+      });
+      return clone.innerHTML;
+    };
+    // Force both views visible temporarily to capture content
+    const wsWasHidden=wsArea.style.display==="none";
+    const personWasHidden=personArea.style.display==="none";
+    wsArea.style.display="block";
+    personArea.style.display="block";
+    const wsContent=processClone(wsArea);
+    const personContent=processClone(personArea);
+    if(wsWasHidden)wsArea.style.display="none";
+    if(personWasHidden)personArea.style.display="none";
     const w=window.open("","_blank","width=900,height=700");
     w.document.write(`<!DOCTYPE html><html><head><title>Workshifts for Week of ${weekTitle}</title>
 <style>
-@page{size:letter;margin:0.3in 0.4in;}
+@page{size:letter;margin:0.25in 0.4in;}
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',sans-serif;
 padding:0;margin:0;color:#333;font-size:9px;line-height:1.15;}
 .no-print{background:#f0efeb;border:1px solid #d4d3cf;border-radius:8px;padding:12px 16px;margin:16px;text-align:center;}
 .no-print p{font-size:12px;color:#666;margin-bottom:8px;}
-.print-title{text-align:center;font-size:14px;font-weight:700;color:#1a1a1a;padding:8px 16px 4px;border-bottom:2px solid #333;margin:0 16px 6px;}
-.print-content{padding:0 16px;font-size:10px;}
+.print-title{text-align:center;font-size:16px;font-weight:700;color:#1a1a1a;padding:8px 16px 4px;border-bottom:2px solid #333;margin:0 16px 6px;}
+.print-subtitle{text-align:center;font-size:12px;font-weight:600;color:#555;margin:4px 16px 8px;}
+.print-content{padding:0 16px;font-size:9px;}
 .print-content div[style*="grid"]{display:grid!important;grid-template-columns:1fr 1fr!important;gap:10px!important;}
+.print-content.person-view div[style*="grid"]{grid-template-columns:1fr 1fr 1fr!important;gap:6px!important;font-size:8px!important;}
+.page-break{page-break-before:always;margin-top:0;}
 @media print{
 .no-print{display:none!important;}
-body{font-size:10px;}
+body{font-size:9px;}
 .print-title{margin:0 0 8px;padding:0 0 6px;}
+.print-subtitle{margin:4px 0 8px;}
 .print-content{padding:0;}
 }
 </style></head><body>
@@ -259,8 +264,14 @@ body{font-size:10px;}
 <p>Tip: In the print dialog, uncheck "Headers and footers" for a cleaner look.</p>
 <button onclick="window.print()" style="padding:8px 20px;background:#2d4a2d;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Print</button>
 </div>
+<div class="page-one">
 <div class="print-title">Workshifts for Week of ${weekTitle}</div>
-<div class="print-content">${content}</div>
+<div class="print-subtitle">By Workshift</div>
+<div class="print-content">${wsContent}</div>
+</div>
+<div class="print-title">Workshifts for Week of ${weekTitle}</div>
+<div class="print-subtitle">By Person</div>
+<div class="print-content person-view">${personContent}</div>
 </body></html>`);
     w.document.close();
   },[pub]);
@@ -273,7 +284,7 @@ body{font-size:10px;}
     const tgt={};res.forEach(r=>{tgt[r.id]=isFF(r.id)?fxHrs(r.id):calcH(subs[r.id]?.daysOut||[]);});
     const rem=rid=>Math.max(0,tgt[rid]-(rh[rid]||0));
     const canDay=(rid,day)=>!(subs[rid]?.daysOut||[]).includes(day);
-    const gp=(rid,wid)=>subs[rid]?.prefs?.[wid]||"Yes";
+    const gp=(rid,wid)=>subs[rid]?.prefs?.[wid]||"Fine";
     const ps=p=>p==="Yes"?4:p==="Fine"?3:p==="Prefer not"?2:1;
 
     const canA=(rid,w)=>{
@@ -310,11 +321,18 @@ body{font-size:10px;}
       const p=gp(ch,w.id.replace(/^pb-/,"pa-"));const s=sat[ch];s.t++;
       if(p==="Yes")s.l++;else if(p==="Fine")s.f++;else if(p==="Prefer not")s.pn++;
     };
-    dws.filter(w=>w.ess&&w.nm!=="Cook Help").sort((x,y)=>DAYS.indexOf(x.day)-DAYS.indexOf(y.day)).forEach(doA);
+    // Priority 1: Cook
+    dws.filter(w=>w.nm==="Cook").sort((x,y)=>DAYS.indexOf(x.day)-DAYS.indexOf(y.day)).forEach(doA);
+    // Priority 2: PM Clean for dinner nights
+    dws.filter(w=>w.nm==="PM Clean").sort((x,y)=>DAYS.indexOf(x.day)-DAYS.indexOf(y.day)).forEach(w=>{if(a[`ck-${w.day}`])doA(w);});
+    // Priority 3: Cook Help for dinner nights
     dws.filter(w=>w.nm==="Cook Help").forEach(w=>{if(a[`ck-${w.day}`])doA(w);});
-    rot.forEach(doA);bwW.filter(w=>w.wk===bw).forEach(doA);nth.forEach(doA);
+    // Priority 4: Other day workshifts
+    dws.filter(w=>w.ess&&w.nm!=="Cook"&&w.nm!=="PM Clean"&&w.nm!=="Cook Help").sort((x,y)=>DAYS.indexOf(x.day)-DAYS.indexOf(y.day)).forEach(doA);
+    // Priority 5: Flexible workshifts in priority order
+    flex.forEach(doA);
     return a;
-  },[res,fxW,dws,rot,bwW,nth,subs,bw,isFF,fxHrs]);
+  },[res,fxW,dws,flex,subs,isFF,fxHrs]);
 
   const tb=act=>({padding:"5px 14px",border:`1px solid ${act?G.p:"#d4d3cf"}`,borderRadius:6,cursor:"pointer",
     background:act?G.p:"#fff",color:act?"#fff":"#666",fontWeight:act?600:400,fontSize:12});
@@ -362,13 +380,11 @@ body{font-size:10px;}
 
     const myFx=fxW.filter(f=>f.to===resId);
     const dayGrp={};DAYS.forEach(d=>{dayGrp[d]=uDayWS.filter(w=>w.day===d).sort((a,b)=>dayOrd(a.nm)-dayOrd(b.nm));});
-    const flexList=[
-      ...rot.filter(w=>w.imp),...bwW.filter(w=>w.imp),
-      ...rot.filter(w=>!w.imp&&w.ess),...bwW.filter(w=>!w.imp&&w.ess),
-      ...rot.filter(w=>!w.ess),...bwW.filter(w=>!w.ess),...nth
-    ].filter(w=>!fxW.find(f=>f.id===w.id));
+    const flexList=useMemo(()=>flex.filter(w=>!fxW.find(f=>f.id===w.id)).sort((a,b)=>{
+      if(a.imp&&!b.imp)return -1;if(!a.imp&&b.imp)return 1;return(a.priority||999)-(b.priority||999);
+    }),[flex,fxW]);
 
-    const keyIds=[...uDayWS,...allFlex].filter(w=>KEY_WS.includes(w.nm)).map(w=>w.id);
+    const keyIds=[...uDayWS,...flex].filter(w=>KEY_WS.includes(w.nm)).map(w=>w.id);
     const hasKeyPref=keyIds.some(id=>["Yes","Fine","Prefer not"].includes(pr[id]));
     const showWarn=!myFx.length&&!hasKeyPref;
 
@@ -452,29 +468,27 @@ body{font-size:10px;}
   };
 
   // ─── Charts ───────────────────────────────────────────────
-  const DayChart=({asgn,wsd,bwv,edit,onEdit,showLC,showStats})=>{
+  const DayChart=({asgn,wsd,edit,onEdit,showLC,showStats})=>{
     const lc=useMemo(()=>{
-      if(!showLC)return{};const r={};[...bwW,...nth,...rot].forEach(w=>{
+      if(!showLC)return{};const r={};flex.forEach(w=>{
         for(let i=hist.length-1;i>=0;i--){if(hist[i].assignments[w.id]){r[w.id]=Math.round((Date.now()-new Date(hist[i].weekStart+"T12:00:00").getTime())/(7*86400000));break;}}
       });return r;
-    },[showLC,hist,bwW,nth,rot]);
-    const abw=bwW.filter(w=>w.wk===(bwv||bw));
-    const flexList=[...rot.filter(w=>w.imp),...abw.filter(w=>w.imp),...rot.filter(w=>!w.imp),...abw.filter(w=>!w.imp)];
+    },[showLC,hist,flex]);
 
     const resStats=useMemo(()=>{
       if(!showStats)return[];
       const s={};res.forEach(r=>{s[r.id]=0;});
       Object.entries(asgn).forEach(([wid,rid])=>{
         if(!rid)return;
-        const w=dws.find(x=>x.id===wid)||rot.find(x=>x.id===wid)||bwW.find(x=>x.id===wid)||nth.find(x=>x.id===wid)||fxW.find(x=>x.id===wid);
+        const w=dws.find(x=>x.id===wid)||flex.find(x=>x.id===wid)||fxW.find(x=>x.id===wid);
         if(w)s[rid]=(s[rid]||0)+w.h;
       });
       const tgt={};res.forEach(r=>{tgt[r.id]=isFF(r.id)?fxHrs(r.id):calcH(subs[r.id]?.daysOut||[]);});
       return res.map(r=>({n:r.n,hrs:s[r.id]||0,tgt:tgt[r.id],ok:Math.abs((s[r.id]||0)-tgt[r.id])<0.1}));
-    },[showStats,asgn,res,dws,rot,bwW,nth,fxW,subs,isFF,fxHrs]);
+    },[showStats,asgn,res,dws,flex,fxW,subs,isFF,fxHrs]);
 
     const Slot=({w})=>{
-      const rid=asgn[w.id];const missing=!rid&&w.ess;
+      const rid=asgn[w.id];const missing=!rid&&w.day;
       const lcVal=lc[w.id];const lcIsRecent=lcVal===0;
       return(
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 8px",
@@ -525,8 +539,7 @@ body{font-size:10px;}
           <div>
             <div style={{marginBottom:12}}>
               <div style={{background:G.pl,color:"#fff",padding:"5px 12px",borderRadius:6,fontWeight:700,fontSize:13}}>Flexible</div>
-              {flexList.map(w=><Slot key={w.id} w={w}/>)}
-              {nth.map(w=><Slot key={w.id} w={w}/>)}
+              {[...flex].sort((a,b)=>{if(a.imp&&!b.imp)return -1;if(!a.imp&&b.imp)return 1;return(a.priority||999)-(b.priority||999);}).map(w=><Slot key={w.id} w={w}/>)}
             </div>
             <div>
               <div style={{background:"#7a7a72",color:"#fff",padding:"5px 12px",borderRadius:6,fontWeight:600,fontSize:13,fontStyle:"italic"}}>Fixed</div>
@@ -547,7 +560,7 @@ body{font-size:10px;}
     const byP={};res.forEach(r=>{byP[r.id]=[];});
     Object.entries(asgn).forEach(([wid,rid])=>{
       if(!rid)return;
-      const w=dws.find(x=>x.id===wid)||rot.find(x=>x.id===wid)||bwW.find(x=>x.id===wid)||nth.find(x=>x.id===wid)||fxW.find(x=>x.id===wid);
+      const w=dws.find(x=>x.id===wid)||flex.find(x=>x.id===wid)||fxW.find(x=>x.id===wid);
       if(w)byP[rid]?.push({...w,wid});
     });
     return(
@@ -627,11 +640,11 @@ body{font-size:10px;}
     return(
       <div>
         <ChartHeader wsd={pub.weekStart} asgn={pub.assignments} showToggle={true} copyBtn={CopyBtn} printBtn={PrintBtn}/>
-        <div id="print-chart">
-          {cView==="ws"?
-            <DayChart asgn={pub.assignments} wsd={pub.weekStart} bwv={pub.biweek} edit={false} showLC={false} showStats={false}/>:
-            <PersonChart asgn={pub.assignments} wsd={pub.weekStart}/>
-          }
+        <div id="print-chart-ws" style={{display:cView==="ws"?"block":"none"}}>
+          <DayChart asgn={pub.assignments} wsd={pub.weekStart} edit={false} showLC={false} showStats={false}/>
+        </div>
+        <div id="print-chart-person" style={{display:cView==="person"?"block":"none"}}>
+          <PersonChart asgn={pub.assignments} wsd={pub.weekStart}/>
         </div>
       </div>
     );
@@ -669,7 +682,7 @@ body{font-size:10px;}
     const atabs=["📊 Generate Chart","📋 Form Results","⚙ Settings"];
 
     const GenPanel=()=>{
-      const gen=()=>setDraft({assignments:genSched(),weekStart:ws,biweek:bw});
+      const gen=()=>setDraft({assignments:genSched(),weekStart:ws});
       const editD=(wid,rid)=>setDraft(d=>({...d,assignments:{...d.assignments,[wid]:rid}}));
       const publish=async()=>{
         setSaving(true);
@@ -680,17 +693,13 @@ body{font-size:10px;}
         }catch(err){alert("Failed to publish: "+err.message);}
         setSaving(false);
       };
-      const unstaffed=draft?[...dws,...rot,...bwW.filter(w=>w.wk===bw)].filter(w=>w.ess&&!draft.assignments[w.id]):[];
+      const unstaffed=draft?dws.filter(w=>w.ess&&!draft.assignments[w.id]):[];
       return(
         <div>
           <div style={{display:"flex",gap:14,alignItems:"center",padding:"8px 14px",background:"#f0efeb",borderRadius:8,marginBottom:16,flexWrap:"wrap",fontSize:13}}>
             <label style={{display:"flex",alignItems:"center",gap:6}}>Week:
               <input type="date" value={ws} onChange={e=>setWs(e.target.value)} style={{padding:"3px 8px",borderRadius:4,border:"1px solid #d4d3cf",fontSize:12}}/>
             </label>
-            <div style={{display:"flex",gap:4,alignItems:"center"}}>Biweekly:
-              <button onClick={()=>setBw("A")} style={tb(bw==="A")}>A</button>
-              <button onClick={()=>setBw("B")} style={tb(bw==="B")}>B</button>
-            </div>
           </div>
           {!draft?(
             <div style={{textAlign:"center",padding:50}}>
@@ -700,14 +709,14 @@ body{font-size:10px;}
             <div>
               {unstaffed.length>0&&(
                 <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:8,padding:12,marginBottom:16}}>
-                  <strong style={{fontSize:13}}>⚠ {unstaffed.length} essential workshift(s) unstaffed</strong>
+                  <strong style={{fontSize:13}}>⚠ {unstaffed.length} essential workshift{unstaffed.length!==1?"s":""} unassigned</strong>
                   <div style={{fontSize:12,color:"#8d6e00",marginTop:4}}>{unstaffed.map(w=>`${w.nm}${w.day?` (${w.day})`:""}`).join(", ")}</div>
                 </div>
               )}
               <div style={{marginBottom:16}}>
                 <div style={{fontSize:18,fontWeight:700,color:G.p}}>Week of {fmtR(draft.weekStart)}</div>
               </div>
-              <DayChart asgn={draft.assignments} wsd={draft.weekStart} bwv={draft.biweek} edit={true} onEdit={editD} showLC={true} showStats={true}/>
+              <DayChart asgn={draft.assignments} wsd={draft.weekStart} edit={true} onEdit={editD} showLC={true} showStats={true}/>
               <div style={{display:"flex",gap:10,marginTop:20}}>
                 <button onClick={gen} style={{flex:1,padding:12,background:"#fff",color:G.p,border:`1px solid ${G.p}`,borderRadius:8,fontSize:14,fontWeight:600,cursor:"pointer"}}>🔄 Re-generate</button>
                 <button onClick={publish} style={{flex:1,padding:12,background:G.p,color:"#fff",border:"none",borderRadius:8,fontSize:14,fontWeight:700,cursor:"pointer"}}>Publish Chart ✓</button>
@@ -722,12 +731,21 @@ body{font-size:10px;}
       const[fCol,setFCol]=useState({});
       const dayGrouped={};
       DAYS.forEach(d=>{dayGrouped[d]=uDayWS.filter(w=>w.day===d).sort((a,b)=>dayOrd(a.nm)-dayOrd(b.nm));});
-      const flexWS=[...rot.filter(w=>w.imp),...bwW.filter(w=>w.imp),...rot.filter(w=>!w.imp),...bwW.filter(w=>!w.imp),...nth].filter(w=>!fxW.find(f=>f.id===w.id));
+      const flexWS=flex.filter(w=>!fxW.find(f=>f.id===w.id));
       const shades={"Yes":{bg:"#c8e6c8",c:"#1a4a1a"},"Fine":{bg:"#dde8dd",c:"#2d5a2d"},"Prefer not":{bg:"#eef4ee",c:"#4a7a4a"},"No":{bg:"#f0f0ed",c:"#aaa"}};
-      const limited=res.filter(r=>!isFF(r.id)&&hasLimitedAvail(subs[r.id],uDayWS,allFlex,fxW)).map(r=>r.n);
+      const limited=res.filter(r=>!isFF(r.id)&&hasLimitedAvail(subs[r.id],uDayWS,flex,fxW)).map(r=>r.n);
 
       const WSCard=({w})=>{
-        const cov=res.filter(r=>!isFF(r.id)).map(r=>({r,pref:subs[r.id]?.prefs?.[w.id]||null}));
+        const cov=res.filter(r=>{
+          if(isFF(r.id))return false;
+          const sub=subs[r.id];if(!sub)return true;
+          let out=sub.daysOut||[];
+          if(typeof out==="string"){try{out=JSON.parse(out);}catch(e){out=[];}}
+          if(!Array.isArray(out))out=[];
+          if(out.length>=5)return false;
+          if(w.day&&out.includes(w.day))return false;
+          return true;
+        }).map(r=>({r,pref:subs[r.id]?.prefs?.[w.id]||null}));
         const groups={};PL.forEach(lv=>{groups[lv]=cov.filter(x=>x.pref===lv);});
         return(
           <div style={{background:G.card,borderRadius:8,padding:10,marginBottom:6,border:"1px solid #eeeee8"}}>
@@ -790,14 +808,17 @@ body{font-size:10px;}
     };
 
     const SettingsPanel=()=>{
+      const[dragIdx,setDragIdx]=useState(null);
+      const[overIdx,setOverIdx]=useState(null);
+
       const WSEditModal=()=>{
         const[nm,setNm]=useState(editWS?.nm||"");
         const[h,setH]=useState(editWS?.h||0.5);
-        const[cat,setCat]=useState(editWS?.cat||"rot");
+        const[cat,setCat]=useState(editWS?.cat||"flex");
         const[day,setDay]=useState(editWS?.day||"Monday");
-        const[wk,setWk]=useState(editWS?.wk||"A");
         const[impV,setImpV]=useState(editWS?.imp||false);
         const[fixTo,setFixTo]=useState(editWS?.to||"");
+        const[priV,setPriV]=useState(editWS?.priority||"");
         const[isSaving,setIsSaving]=useState(false);
         if(!editWS)return null;
         const isNew=editWS.isNew;
@@ -805,30 +826,30 @@ body{font-size:10px;}
 
         const save=async()=>{
           setIsSaving(true);
-          // Essential is automatic: nth = not essential, everything else = essential
-          const isEss=cat!=="nth";
-          const base={nm,h:parseFloat(h),ess:isEss,imp:impV};
+          const base={nm,h:parseFloat(h),imp:impV};
           const id=origId||(isNew?`${cat}-${Date.now()}`:origId);
 
-          let newFx=[...fxW],newDws=[...dws],newRot=[...rot],newBw=[...bwW],newNth=[...nth];
+          let newFx=[...fxW],newDws=[...dws],newFlex=[...flex];
           if(!isNew){
             newFx=newFx.filter(x=>x.id!==origId);
             newDws=newDws.filter(x=>x.id!==origId);
-            newRot=newRot.filter(x=>x.id!==origId);
-            newBw=newBw.filter(x=>x.id!==origId);
-            newNth=newNth.filter(x=>x.id!==origId);
+            newFlex=newFlex.filter(x=>x.id!==origId);
           }
           if(cat==="fixed")newFx.push({...base,id,to:fixTo,cat:"fixed"});
-          else if(cat==="day")newDws.push({...base,id,day,cat:"day",slot:""});
-          else if(cat==="bw")newBw.push({...base,id,wk,cat:"bw"});
-          else if(cat==="nth")newNth.push({...base,id,cat:"nth",ess:false});
-          else newRot.push({...base,id,cat:"rot"});
+          else if(cat==="day")newDws.push({...base,id,day,cat:"day",slot:"",ess:true});
+          else{
+            const pri=isNew?newFlex.reduce((m,w)=>Math.max(m,w.priority||0),0)+1:parseInt(priV)||editWS.priority||999;
+            newFlex.push({...base,id,cat:"flex",priority:pri});
+            // If priority changed, reorder and renumber
+            newFlex.sort((a,b)=>(a.priority||999)-(b.priority||999));
+            newFlex=newFlex.map((w,i)=>({...w,priority:i+1}));
+          }
 
           try{
             await Promise.all([
-              apiSaveFx(newFx),apiSaveDay(newDws),apiSaveRot(newRot),apiSaveBw(newBw),apiSaveNth(newNth)
+              apiSaveFx(newFx),apiSaveDay(newDws),apiSaveFlex(newFlex)
             ]);
-            setFxW(newFx);setDws(newDws);setRot(newRot);setBwW(newBw);setNth(newNth);
+            setFxW(newFx);setDws(newDws);setFlex(newFlex.sort((a,b)=>(a.priority||999)-(b.priority||999)));
             setEditWS(null);
           }catch(err){alert("Failed to save: "+err.message);}
           setIsSaving(false);
@@ -837,10 +858,10 @@ body{font-size:10px;}
         const del=async()=>{
           setIsSaving(true);
           let newFx=fxW.filter(x=>x.id!==origId),newDws=dws.filter(x=>x.id!==origId);
-          let newRot=rot.filter(x=>x.id!==origId),newBw=bwW.filter(x=>x.id!==origId),newNth=nth.filter(x=>x.id!==origId);
+          let newFlex=flex.filter(x=>x.id!==origId);
           try{
-            await Promise.all([apiSaveFx(newFx),apiSaveDay(newDws),apiSaveRot(newRot),apiSaveBw(newBw),apiSaveNth(newNth)]);
-            setFxW(newFx);setDws(newDws);setRot(newRot);setBwW(newBw);setNth(newNth);setEditWS(null);
+            await Promise.all([apiSaveFx(newFx),apiSaveDay(newDws),apiSaveFlex(newFlex)]);
+            setFxW(newFx);setDws(newDws);setFlex(newFlex);setEditWS(null);
           }catch(err){alert("Failed to delete: "+err.message);}
           setIsSaving(false);
         };
@@ -851,7 +872,7 @@ body{font-size:10px;}
           <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999}}>
             <div style={{background:"#fff",borderRadius:12,padding:24,maxWidth:420,width:"90%",maxHeight:"85vh",overflow:"auto",boxShadow:"0 8px 30px rgba(0,0,0,0.15)"}}>
               <h3 style={{margin:"0 0 16px",fontSize:16,fontWeight:700,color:G.p}}>{isNew?"Add Workshift":"Edit Workshift"}</h3>
-              <label style={lbl}>Name</label><input value={nm} onChange={e=>setNm(e.target.value)} style={ipt}/>
+              <label style={lbl}>Workshift title</label><input value={nm} onChange={e=>setNm(e.target.value)} style={ipt}/>
               <label style={lbl}>Hours</label>
               <input type="number" step="0.5" min="0.5" max="4" value={h} onChange={e=>setH(Math.min(4,Math.max(0.5,parseFloat(e.target.value)||0.5)))} style={ipt}/>
               <label style={lbl}>Category</label>
@@ -862,9 +883,9 @@ body{font-size:10px;}
               </div>
               {cat==="fixed"&&(<><label style={lbl}>Assigned to</label><select value={fixTo} onChange={e=>setFixTo(e.target.value)} style={ipt}><option value="">Select</option>{res.map(r=><option key={r.id} value={r.id}>{r.n}</option>)}</select></>)}
               {cat==="day"&&(<><label style={lbl}>Day</label><select value={day} onChange={e=>setDay(e.target.value)} style={ipt}>{DAYS.map(d=><option key={d} value={d}>{d}</option>)}</select></>)}
-              {cat==="bw"&&(<><label style={lbl}>Week</label><div style={{display:"flex",gap:6,marginBottom:10}}><button type="button" onClick={()=>setWk("A")} style={tb(wk==="A")}>Week A</button><button type="button" onClick={()=>setWk("B")} style={tb(wk==="B")}>Week B</button></div></>)}
+              {cat==="flex"&&!isNew&&(<><label style={lbl}>Priority (1 = highest)</label><input type="number" min="1" max={flex.length} value={priV} onChange={e=>setPriV(e.target.value)} style={ipt}/></>)}
               <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,marginBottom:16,cursor:"pointer"}}>
-                <input type="checkbox" checked={impV} onChange={e=>setImpV(e.target.checked)} style={{accentColor:G.p}}/>Important (ie bathroom)
+                <input type="checkbox" checked={impV} onChange={e=>setImpV(e.target.checked)} style={{accentColor:G.p}}/>Flag as important (ie bathroom)
               </label>
               <div style={{display:"flex",gap:8}}>
                 <button onClick={()=>setEditWS(null)} style={{flex:1,padding:10,background:"#f5f5f0",border:"none",borderRadius:6,cursor:"pointer",fontSize:13,color:"#666"}}>Cancel</button>
@@ -927,6 +948,41 @@ body{font-size:10px;}
         }catch(err){alert("Failed to add: "+err.message);}
       };
 
+      const[pendingSave,setPendingSave]=useState(false);
+      const saveOrder=async(updated)=>{
+        setPendingSave(true);
+        try{await apiSaveFlex(updated);}catch(err){alert("Failed to save order: "+err.message);}
+        setPendingSave(false);
+      };
+      const moveUp=(idx)=>{
+        if(idx<=0)return;
+        const nf=[...flex];
+        [nf[idx-1],nf[idx]]=[nf[idx],nf[idx-1]];
+        const updated=nf.map((w,i)=>({...w,priority:i+1}));
+        setFlex(updated);
+        saveOrder(updated);
+      };
+      const moveDown=(idx)=>{
+        if(idx>=flex.length-1)return;
+        const nf=[...flex];
+        [nf[idx],nf[idx+1]]=[nf[idx+1],nf[idx]];
+        const updated=nf.map((w,i)=>({...w,priority:i+1}));
+        setFlex(updated);
+        saveOrder(updated);
+      };
+      const handleDragStart=(e,idx)=>{setDragIdx(idx);e.dataTransfer.effectAllowed="move";};
+      const handleDragOver=(e,idx)=>{e.preventDefault();setOverIdx(idx);};
+      const handleDrop=(e,dropIdx)=>{
+        e.preventDefault();
+        if(dragIdx===null||dragIdx===dropIdx){setDragIdx(null);setOverIdx(null);return;}
+        const nf=[...flex];const[item]=nf.splice(dragIdx,1);nf.splice(dropIdx,0,item);
+        const updated=nf.map((w,i)=>({...w,priority:i+1}));
+        setFlex(updated);
+        saveOrder(updated);
+        setDragIdx(null);setOverIdx(null);
+      };
+      const handleDragEnd=()=>{setDragIdx(null);setOverIdx(null);};
+
       const WSRow=({w,label})=>(
         <div onClick={()=>stUnlock&&setEditWS({...w})} style={{
           background:w.imp?G.imp:G.card,borderRadius:6,padding:"8px 12px",marginBottom:4,fontSize:13,
@@ -938,6 +994,33 @@ body{font-size:10px;}
             {w.nm}<Hrs v={w.h}/>{w.imp&&<ImpBadge/>}{label&&<span style={{fontSize:10,color:G.mt}}>{label}</span>}
             {w.to&&<span style={{fontSize:11,color:G.pl}}>→ {rName(w.to)}</span>}
           </span>
+        </div>
+      );
+
+      const FlexRow=({w,idx})=>(
+        <div
+          style={{
+            background:w.imp?G.imp:G.card,borderRadius:6,padding:"8px 12px",marginBottom:4,fontSize:13,
+            border:"1px solid #eeeee8",
+            display:"flex",justifyContent:"space-between",alignItems:"center"
+          }}>
+          <span style={{display:"flex",alignItems:"center",gap:4}}>
+            {stUnlock&&(
+              <>
+                <button onClick={e=>{e.stopPropagation();moveUp(idx);}} disabled={idx===0}
+                  style={{background:"none",border:"none",cursor:idx===0?"default":"pointer",fontSize:12,color:idx===0?"#ddd":G.mt,padding:"1px 2px",lineHeight:1}}>▲</button>
+                <button onClick={e=>{e.stopPropagation();moveDown(idx);}} disabled={idx===flex.length-1}
+                  style={{background:"none",border:"none",cursor:idx===flex.length-1?"default":"pointer",fontSize:12,color:idx===flex.length-1?"#ddd":G.mt,padding:"1px 2px",lineHeight:1}}>▼</button>
+                <span style={{width:6}}/>
+              </>
+            )}
+            <span style={{color:G.p,fontSize:13,fontWeight:700,minWidth:24}}>{idx+1}.</span>
+            {w.nm}<Hrs v={w.h}/>{w.imp&&<ImpBadge/>}
+          </span>
+          {stUnlock&&(
+            <button onClick={e=>{e.stopPropagation();setEditWS({...w});}}
+              style={{background:"none",border:"none",cursor:"pointer",fontSize:13,color:G.mt,padding:"2px 4px"}}>✎</button>
+          )}
         </div>
       );
 
@@ -955,23 +1038,24 @@ body{font-size:10px;}
                 <span style={{fontSize:13,color:"#8d6e00",fontWeight:600}}>⚠ Editing unlocked — changes save to Google Sheets</span>
                 <button onClick={()=>setStUnlock(false)} style={{padding:"6px 16px",background:G.p,color:"#fff",border:"none",borderRadius:6,fontSize:12,cursor:"pointer",fontWeight:600}}>Lock 🔒</button>
               </div>
-              <h3 style={{color:G.p,fontSize:16,fontWeight:700,margin:"0 0 12px"}}>Workshifts</h3>
+              <h2 style={{color:G.p,fontSize:20,fontWeight:800,margin:"0 0 12px",borderBottom:`2px solid ${G.dayBdr}`,paddingBottom:8}}>Workshifts</h2>
               <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
-                <button onClick={()=>setEditWS({isNew:true,cat:"rot",h:0.5,ess:true,imp:false})} style={{padding:"5px 14px",background:G.p,color:"#fff",border:"none",borderRadius:6,fontSize:12,cursor:"pointer",fontWeight:600}}>+ Add Workshift</button>
+                <button onClick={()=>setEditWS({isNew:true,cat:"flex",h:0.5,imp:false})} style={{padding:"5px 14px",background:G.p,color:"#fff",border:"none",borderRadius:6,fontSize:12,cursor:"pointer",fontWeight:600}}>+ Add Workshift</button>
               </div>
+              <h3 style={{color:G.p,fontSize:16,fontWeight:700,margin:"0 0 8px"}}>Day-specific workshifts</h3>
               {DAYS.map(d=>{
                 const list=dws.filter(w=>w.day===d);if(!list.length)return null;
                 return(<div key={d}><div style={{fontWeight:600,fontSize:13,color:G.p,marginTop:10,marginBottom:4}}>{d}</div>{list.map(w=><WSRow key={w.id} w={w}/>)}</div>);
               })}
-              <div style={{fontWeight:600,fontSize:13,color:G.pl,marginTop:14,marginBottom:4}}>Weekly (flexible)</div>
-              {rot.map(w=><WSRow key={w.id} w={w}/>)}
-              <div style={{fontWeight:600,fontSize:13,color:G.pl,marginTop:14,marginBottom:4}}>Biweekly</div>
-              {bwW.map(w=><WSRow key={w.id} w={w} label={`Week ${w.wk}`}/>)}
-              <div style={{fontWeight:600,fontSize:13,color:G.mt,marginTop:14,marginBottom:4}}>Nonessential</div>
-              {nth.map(w=><WSRow key={w.id} w={w}/>)}
-              <div style={{fontWeight:600,fontSize:13,color:"#7a7a72",fontStyle:"italic",marginTop:14,marginBottom:4}}>📌 Fixed (always assigned)</div>
+              <h3 style={{color:G.p,fontSize:16,fontWeight:700,margin:"20px 0 8px"}}>
+                Flexible workshifts <span style={{fontSize:11,color:G.mt,fontWeight:400,fontStyle:"italic"}}>(use arrows to reorder priority)</span>
+              </h3>
+              {flex.map((w,i)=><FlexRow key={w.id} w={w} idx={i}/>)}
+              <h3 style={{color:G.p,fontSize:16,fontWeight:700,margin:"20px 0 8px"}}>
+                Fixed workshifts <span style={{fontSize:11,color:G.mt,fontWeight:400,fontStyle:"italic"}}>(always assigned to a specific resident)</span>
+              </h3>
               {fxW.map(w=><WSRow key={w.id} w={w}/>)}
-              <h3 style={{color:G.p,fontSize:16,fontWeight:700,margin:"28px 0 12px"}}>Residents</h3>
+              <h2 style={{color:G.p,fontSize:20,fontWeight:800,margin:"28px 0 12px",borderBottom:`2px solid ${G.dayBdr}`,paddingBottom:8}}>Residents</h2>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:6}}>
                 {res.map(r=>(
                   <div key={r.id} onClick={()=>setEditResId(r.id)} style={{
@@ -1032,7 +1116,7 @@ body{font-size:10px;}
             <h3 style={{margin:0,color:G.p,fontSize:18,fontWeight:700}}>Week of {fmtR(histModal.weekStart)}</h3>
             <button onClick={()=>setHistModal(null)} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:G.mt}}>✕</button>
           </div>
-          <DayChart asgn={histModal.assignments} wsd={histModal.weekStart} bwv={histModal.biweek} edit={false} showLC={false} showStats={false}/>
+          <DayChart asgn={histModal.assignments} wsd={histModal.weekStart} edit={false} showLC={false} showStats={false}/>
         </div>
       </div>
     );

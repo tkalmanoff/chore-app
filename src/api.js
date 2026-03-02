@@ -23,8 +23,6 @@ async function apiPost(body) {
 }
 
 // ─── Strip time from ISO date strings ───────────────────────
-// Google Sheets may return dates as full ISO datetime strings
-// e.g. "2026-03-02T08:00:00.000Z" → "2026-03-02"
 function toDateOnly(v) {
   if (!v) return '';
   const s = String(v);
@@ -54,20 +52,12 @@ export async function loadAllData() {
     ess: parseBool(w.ess), imp: parseBool(w.imp), slot: w.slot || ''
   }));
 
-  const rotWorkshifts = d.rotWorkshifts.map(w => ({
-    id: w.id, nm: w.nm, h: parseNum(w.h), cat: 'rot',
-    ess: parseBool(w.ess), imp: parseBool(w.imp)
+  // Flex workshifts (combined: was rot + biweekly + nth)
+  const flexWorkshifts = (d.flexWorkshifts || []).map(w => ({
+    id: w.id, nm: w.nm, h: parseNum(w.h), cat: 'flex',
+    imp: parseBool(w.imp), priority: parseNum(w.priority) || 999
   }));
-
-  const biweeklyWorkshifts = d.biweeklyWorkshifts.map(w => ({
-    id: w.id, nm: w.nm, h: parseNum(w.h), cat: 'bw', wk: w.wk,
-    ess: parseBool(w.ess), imp: parseBool(w.imp)
-  }));
-
-  const nthWorkshifts = d.nthWorkshifts.map(w => ({
-    id: w.id, nm: w.nm, h: parseNum(w.h), cat: 'nth',
-    ess: parseBool(w.ess), imp: parseBool(w.imp)
-  }));
+  flexWorkshifts.sort((a, b) => a.priority - b.priority);
 
   // Parse preferences
   const subs = {};
@@ -87,7 +77,7 @@ export async function loadAllData() {
     };
   });
 
-  // Parse history — stored as one row per week with JSON blobs
+  // Parse history
   const history = d.history.map(h => {
     let assignments = {};
     let submissions = {};
@@ -95,39 +85,34 @@ export async function loadAllData() {
     try { submissions = JSON.parse(h.submissionsJSON || '{}'); } catch (e) {}
     return {
       weekStart: toDateOnly(h.weekStart),
-      biweek: h.biweek,
+      biweek: h.biweek || '',
       assignments,
       submissions,
       publishedAt: h.publishedAt || ''
     };
   });
 
-  // Build published chart from the Assignments tab (one row per assignment)
-  // This is the "live" chart, separate from history
+  // Build published chart from Assignments tab
   let pub = null;
   if (d.assignments && d.assignments.length > 0) {
     const asgn = {};
     let weekStart = '';
-    let biweek = '';
     let publishedAt = '';
     d.assignments.forEach(a => {
       if (a.workshiftId && a.residentId) {
         asgn[a.workshiftId] = a.residentId;
       }
       if (!weekStart && a.weekStart) weekStart = toDateOnly(a.weekStart);
-      if (!biweek && a.biweek) biweek = a.biweek;
       if (!publishedAt && a.publishedAt) publishedAt = a.publishedAt;
     });
-    pub = { weekStart, biweek, assignments: asgn, publishedAt };
+    pub = { weekStart, assignments: asgn, publishedAt };
   }
 
   return {
     residents,
     fixedWorkshifts,
     dayWorkshifts,
-    rotWorkshifts,
-    biweeklyWorkshifts,
-    nthWorkshifts,
+    flexWorkshifts,
     subs,
     history,
     pub
@@ -148,27 +133,18 @@ export async function saveDayWorkshifts(workshifts) {
   return apiPost({ action: 'saveDayWorkshifts', workshifts });
 }
 
-export async function saveRotWorkshifts(workshifts) {
-  return apiPost({ action: 'saveRotWorkshifts', workshifts });
-}
-
-export async function saveBiweeklyWorkshifts(workshifts) {
-  return apiPost({ action: 'saveBiweeklyWorkshifts', workshifts });
-}
-
-export async function saveNthWorkshifts(workshifts) {
-  return apiPost({ action: 'saveNthWorkshifts', workshifts });
+export async function saveFlexWorkshifts(workshifts) {
+  return apiPost({ action: 'saveFlexWorkshifts', workshifts });
 }
 
 export async function savePreference(submission) {
   return apiPost({ action: 'savePreference', submission });
 }
 
-export async function savePublish({ weekStart, biweek, assignments, submissions, publishedAt }) {
+export async function savePublish({ weekStart, assignments, submissions, publishedAt }) {
   return apiPost({
     action: 'savePublish',
     weekStart,
-    biweek,
     assignments,
     submissions,
     publishedAt
